@@ -146,7 +146,7 @@ def generate_easy_ai_opinion(summary_data: dict, api_key: str) -> str:
 
 
 # ==========================================
-# 4. 시각적 PDF 소견서 생성 모듈 (글꼴 파일 없이 웹 로드)
+# 4. 시각적 PDF 소견서 생성 모듈 (utf-8 인코딩 명시)
 # ==========================================
 def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str):
     main_font = "NotoSansKR"
@@ -154,17 +154,19 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
     # 폰트 등록 여부 확인 후 메모리로 가져와 동적 등록
     if main_font not in pdfmetrics.getRegisteredFontNames():
         try:
-            # 오픈소스 Noto Sans KR 폰트를 메모리로 로드 (파일 저장 불필요)
+            # 오픈소스 Noto Sans KR 폰트 다운로드
             font_url = "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR-Regular.ttf"
             res = requests.get(font_url, timeout=10)
             res.raise_for_status()
             font_bytes = io.BytesIO(res.content)
-            pdfmetrics.registerFont(TTFont(main_font, font_bytes))
-        except Exception:
+            
+            # ★ 핵심 수정: utf-8 인코딩 옵션 추가 ★
+            pdfmetrics.registerFont(TTFont(main_font, font_bytes, utf8=True))
+        except Exception as e:
             # 온라인 다운로드 실패 시 시스템 맑은 고딕 Fallback
             font_path = "C:/Windows/Fonts/malgun.ttf"
             if os.path.exists(font_path):
-                pdfmetrics.registerFont(TTFont("Malgun", font_path))
+                pdfmetrics.registerFont(TTFont("Malgun", font_path, utf8=True))
                 main_font = "Malgun"
             else:
                 main_font = "Helvetica"
