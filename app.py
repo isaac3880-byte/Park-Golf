@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import io
+import requests
 import fitz  # PyMuPDF
 import streamlit as st
 from dotenv import load_dotenv
@@ -50,7 +52,7 @@ def extract_embedded_json(pdf_bytes: bytes) -> dict:
 
 
 # ==========================================
-# 2. 스윙 데이터 요약 및 정제 (보완된 버전)
+# 2. 스윙 데이터 요약 및 정제
 # ==========================================
 def preprocess_swing_data(json_data: dict) -> dict:
     metadata = json_data.get("metadata", {})
@@ -68,7 +70,6 @@ def preprocess_swing_data(json_data: dict) -> dict:
         dx = cop_error.get("delta_x", 0.0)
         dy = cop_error.get("delta_y", 0.0)
 
-        # 다운스윙 / 임팩트 / 전환 구간 감지 (3/4 스윙 기준 0.25 이상도 감지되도록 기준 완화)
         if any(k in p_name for k in ["Transition", "Downswing", "Impact"]):
             if dx >= 0.25:
                 issues.append({
@@ -84,7 +85,6 @@ def preprocess_swing_data(json_data: dict) -> dict:
                     "description": "백스윙 구간에서 중심축 체중 이동 밸런스 점검 필요"
                 })
 
-    # 스윙 타입 파일명 안정을 위한 공백 정제
     raw_swing_type = metadata.get("swing_type", "스윙")
     clean_swing_type = raw_swing_type.replace("/", "_").strip()
 
@@ -98,7 +98,7 @@ def preprocess_swing_data(json_data: dict) -> dict:
 
 
 # ==========================================
-# 3. Gemini AI 소견 생성 모듈 (기호 배제)
+# 3. Gemini AI 소견 생성 모듈
 # ==========================================
 def generate_easy_ai_opinion(summary_data: dict, api_key: str) -> str:
     client = genai.Client(api_key=api_key)
@@ -146,15 +146,28 @@ def generate_easy_ai_opinion(summary_data: dict, api_key: str) -> str:
 
 
 # ==========================================
-# 4. 시각적 PDF 소견서 생성 모듈 (페이지 짤림 방지)
+# 4. 시각적 PDF 소견서 생성 모듈 (글꼴 파일 없이 웹 로드)
 # ==========================================
 def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str):
-    font_path = "C:/Windows/Fonts/malgun.ttf"
-    if os.path.exists(font_path):
-        pdfmetrics.registerFont(TTFont("Malgun", font_path))
-        main_font = "Malgun"
-    else:
-        main_font = "Helvetica"
+    main_font = "NotoSansKR"
+
+    # 폰트 등록 여부 확인 후 메모리로 가져와 동적 등록
+    if main_font not in pdfmetrics.getRegisteredFontNames():
+        try:
+            # 오픈소스 Noto Sans KR 폰트를 메모리로 로드 (파일 저장 불필요)
+            font_url = "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR-Regular.ttf"
+            res = requests.get(font_url, timeout=10)
+            res.raise_for_status()
+            font_bytes = io.BytesIO(res.content)
+            pdfmetrics.registerFont(TTFont(main_font, font_bytes))
+        except Exception:
+            # 온라인 다운로드 실패 시 시스템 맑은 고딕 Fallback
+            font_path = "C:/Windows/Fonts/malgun.ttf"
+            if os.path.exists(font_path):
+                pdfmetrics.registerFont(TTFont("Malgun", font_path))
+                main_font = "Malgun"
+            else:
+                main_font = "Helvetica"
 
     doc = SimpleDocTemplate(
         output_path,
@@ -171,11 +184,10 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
     border_color = colors.HexColor('#E2E8F0')
     text_color = colors.HexColor('#334155')
 
-    # 스타일 정의 (대형 헤더 지원)
+    # 스타일 정의
     title_style = ParagraphStyle('DocTitle', fontName=main_font, fontSize=20, leading=24, textColor=dark_navy)
     sub_title_style = ParagraphStyle('SubTitle', fontName=main_font, fontSize=9, leading=12, textColor=colors.HexColor('#64748B'))
     
-    # [1. 스윙 종합...] 대형 메인 섹션 제목 (소제목보다 훨씬 큰 15pt)
     major_header_style = ParagraphStyle('MajorHeader', fontName=main_font, fontSize=15, leading=19, textColor=primary_color, spaceBefore=12, spaceAfter=8)
     body_style = ParagraphStyle('BodyTextCustom', fontName=main_font, fontSize=9.5, leading=15, textColor=text_color, spaceAfter=4)
     bullet_style = ParagraphStyle('BulletCustom', fontName=main_font, fontSize=9.5, leading=15, textColor=text_color, leftIndent=10, spaceAfter=4)
@@ -189,7 +201,7 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
     elements.append(Spacer(1, 8))
     elements.append(HRFlowable(width="100%", thickness=1.5, color=primary_color, spaceAfter=10))
 
-    # 요약 정보 표 (여백 축소)
+    # 요약 정보 표
     info_card_data = [
         [
             Paragraph(f"<b>회원명</b><br/><font size=10 color='#0F172A'><b>{summary_data['user_name']}</b> 님</font>", body_style),
@@ -210,7 +222,7 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
     elements.append(Spacer(1, 10))
 
     # 소견 텍스트 정제 및 레이아웃 배치
-    clean_text = re.sub(r'[\#\*]', '', ai_opinion_text)  # ### 및 ** 기호 완벽 제거
+    clean_text = re.sub(r'[\#\*]', '', ai_opinion_text)
     lines = clean_text.split('\n')
 
     for line in lines:
@@ -218,7 +230,6 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
         if not line:
             continue
 
-        # 대형 메인 섹션 제목 패턴
         if line.startswith('[1.') or line.startswith('[2.') or line.startswith('[3.') or line.startswith('1.') or line.startswith('2.') or line.startswith('3.'):
             elements.append(Spacer(1, 8))
             elements.append(Paragraph(f"<b>{line}</b>", major_header_style))
@@ -283,14 +294,11 @@ if uploaded_file is not None:
                 st.subheader("🤖 AI 스윙 코칭 소견 생성")
                 if st.button("AI 소견서 생성하기", type="primary"):
                     with st.spinner("Gemini AI가 소견서를 작성하고 PDF 보고서를 구성 중입니다..."):
-                        # AI 소견 생성
                         ai_opinion = generate_easy_ai_opinion(summary, api_key_input)
                         
-                        # PDF 파일 생성
                         output_pdf_filename = f"{summary['user_name']}_{summary['swing_type']}_AI소견서.pdf"
                         create_pdf_report(summary, ai_opinion, output_pdf_filename)
 
-                        # 완료 후 텍스트 출력 및 다운로드 버튼 제공
                         st.markdown("### 📝 생성된 소견 내역")
                         st.write(ai_opinion)
 
