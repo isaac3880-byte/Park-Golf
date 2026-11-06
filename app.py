@@ -101,7 +101,11 @@ def preprocess_swing_data(json_data: dict) -> dict:
 # 3. Gemini AI 소견 생성 모듈
 # ==========================================
 def generate_easy_ai_opinion(summary_data: dict, api_key: str) -> str:
-    client = genai.Client(api_key=api_key)
+    # 핵심 수정: api_version을 v1beta로 명시하여 system_instruction 오류 해결
+    client = genai.Client(
+        api_key=api_key,
+        http_options={"api_version": "v1beta"}
+    )
 
     system_prompt = """
 너는 파크골프 회원을 위한 친절하고 전문적인 AI 스윙 코치이다.
