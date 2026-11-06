@@ -134,7 +134,7 @@ def generate_easy_ai_opinion(summary_data: dict, api_key: str) -> str:
 """
 
     response = client.models.generate_content(
-        model="v1beta/gemini-2.5-flash",
+        model="gemini-2.5-flash",
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
