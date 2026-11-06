@@ -168,7 +168,17 @@ def create_pdf_report(summary_data: dict, ai_opinion_text: str, output_path: str
                 pdfmetrics.registerFont(TTFont("Malgun", font_path))
                 main_font = "Malgun"
             else:
-                main_font = "Helvetica"
+                # 스트림릿 클라우드 등 리눅스 환경에서 폰트 다운로드 실패 시 대체 기본 한글 폰트(NanumGothic) 직접 지정 등록 시도
+                try:
+                    import urllib.request
+                    alt_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+                    font_file_path = "/tmp/NanumGothic.ttf"
+                    urllib.request.urlretrieve(alt_url, font_file_path)
+                    pdfmetrics.registerFont(TTFont("NanumGothic", font_file_path))
+                    main_font = "NanumGothic"
+                except:
+                    # 최후의 수단: 유니코드 인코딩 오류 방지를 위해 폰트 오류 명시
+                    raise RuntimeError("PDF 생성에 필요한 한글 폰트(나눔고딕)를 로드할 수 없습니다.")
 
     doc = SimpleDocTemplate(
         output_path,
